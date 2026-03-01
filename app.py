@@ -3,7 +3,6 @@ import pandas as pd
 import sqlite3
 import os
 import re
-from io import BytesIO
 
 st.set_page_config(page_title="Command Center", layout="wide")
 
@@ -27,82 +26,97 @@ def save_uploaded_file(uploadedfile, category, folder_name):
 
 conn = sqlite3.connect('command_center.db', check_same_thread=False)
 
-try:
-    projects_df = pd.read_sql_query('SELECT * FROM projects', conn)
-except:
-    projects_df = pd.DataFrame(columns=['Ονομασία', 'Προθεσμία', 'Διαδρομή_Αρχείου'])
-    projects_df.to_sql('projects', conn, index=False)
-
-try:
-    expenses_df = pd.read_sql_query('SELECT * FROM expenses', conn)
-except:
-    expenses_df = pd.DataFrame(columns=['Ταξίδι', 'Περιγραφή', 'Ποσό', 'Διαδρομή_Αρχείου'])
-    expenses_df.to_sql('expenses', conn, index=False)
+conn.execute('''CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY, name TEXT, deadline TEXT)''')
+conn.execute('''CREATE TABLE IF NOT EXISTS trips (id INTEGER PRIMARY KEY, name TEXT)''')
+conn.execute('''CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY, trip_name TEXT, description TEXT, amount REAL, file_path TEXT)''')
+conn.commit()
 
 st.title("Academic Command Center")
-st.subheader("Οργάνωση, Projects και Ταξίδια")
 
-col1, col2 = st.columns(2)
+tab1, tab2 = st.tabs(["Projects", "Ταξίδια & Έξοδα"])
 
-with col1:
-    st.header("Ενεργά Projects")
-    
-    new_project = st.text_input("Όνομα Project")
-    new_deadline = st.date_input("Προθεσμία")
-    proj_file = st.file_uploader("Συνημμένο Αρχείο Project", type=["pdf", "docx", "png", "jpg", "xlsx"])
-    
-    if st.button("Αποθήκευση Project"):
-        if new_project:
-            file_path = save_uploaded_file(proj_file, "Projects", new_project)
-            new_row = pd.DataFrame([{'Ονομασία': new_project, 'Προθεσμία': str(new_deadline), 'Διαδρομή_Αρχείου': file_path}])
-            projects_df = pd.concat([projects_df, new_row], ignore_index=True)
-            projects_df.to_sql('projects', conn, if_exists='replace', index=False)
-            st.success("Το project και ο φάκελος δημιουργήθηκαν!")
-            st.rerun()
-        else:
-            st.error("Βάλε πρώτα ένα όνομα για το Project.")
+with tab1:
+    with st.expander("Δημιουργία Νέου Project"):
+        new_project = st.text_input("Όνομα Project")
+        new_deadline = st.date_input("Προθεσμία")
+        if st.button("Δημιουργία Φακέλου Project"):
+            if new_project:
+                conn.execute('INSERT INTO projects (name, deadline) VALUES (?, ?)', (new_project, str(new_deadline)))
+                conn.commit()
+                os.makedirs(os.path.join("uploads", "Projects", create_safe_folder_name(new_project)), exist_ok=True)
+                st.success("Το project δημιουργήθηκε!")
+                st.rerun()
+            else:
+                st.error("Γράψε ένα όνομα για το project.")
 
-    st.write("Επεξεργασία Projects")
-    edited_projects = st.data_editor(projects_df, num_rows="dynamic", key="proj_editor")
-    if st.button("Αποθήκευση Αλλαγών Projects"):
-        edited_projects.to_sql('projects', conn, if_exists='replace', index=False)
-        st.success("Οι αλλαγές αποθηκεύτηκαν!")
-        st.rerun()
-
-with col2:
-    st.header("Ταξίδια & Έξοδα")
-    
-    trip_name = st.text_input("Όνομα Ταξιδιού (π.χ. Συνέδριο Παρίσι)")
-    expense_desc = st.text_input("Περιγραφή Εξόδου")
-    expense_amount = st.number_input("Ποσό σε Ευρώ", min_value=0.0, format="%.2f")
-    exp_file = st.file_uploader("Απόδειξη ή Εισιτήριο", type=["pdf", "png", "jpg", "jpeg"])
-    
-    if st.button("Καταχώρηση Εξόδου"):
-        if trip_name:
-            file_path = save_uploaded_file(exp_file, "Trips", trip_name)
-            new_row = pd.DataFrame([{'Ταξίδι': trip_name, 'Περιγραφή': expense_desc, 'Ποσό': expense_amount, 'Διαδρομή_Αρχείου': file_path}])
-            expenses_df = pd.concat([expenses_df, new_row], ignore_index=True)
-            expenses_df.to_sql('expenses', conn, if_exists='replace', index=False)
-            st.success("Το έξοδο καταχωρήθηκε στον φάκελο του ταξιδιού!")
-            st.rerun()
-        else:
-            st.error("Γράψε το όνομα του ταξιδιού για να ξέρουμε σε ποιον φάκελο να μπει.")
-
-    st.write("Επεξεργασία Εξόδων")
-    edited_expenses = st.data_editor(expenses_df, num_rows="dynamic", key="exp_editor")
-    if st.button("Αποθήκευση Αλλαγών Εξόδων"):
-        edited_expenses.to_sql('expenses', conn, if_exists='replace', index=False)
-        st.success("Οι αλλαγές αποθηκεύτηκαν!")
-        st.rerun()
+    projects_df = pd.read_sql_query('SELECT * FROM projects', conn)
+    if not projects_df.empty:
+        project_names = projects_df['name'].tolist()
+        selected_project = st.selectbox("Άνοιγμα Φακέλου Project", ["Επίλεξε..."] + project_names)
         
-    if not edited_expenses.empty:
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            edited_expenses.to_excel(writer, index=False, sheet_name='Έξοδα')
+        if selected_project != "Επίλεξε...":
+            st.subheader(f"Μέσα στον φάκελο: {selected_project}")
+            
+            proj_file = st.file_uploader("Προσθήκη Αρχείου", type=["pdf", "docx", "png", "jpg", "xlsx"])
+            if st.button("Ανέβασμα Αρχείου"):
+                if proj_file:
+                    save_uploaded_file(proj_file, "Projects", selected_project)
+                    st.success("Το αρχείο μπήκε στον φάκελο!")
+                    st.rerun()
+            
+            folder_path = os.path.join("uploads", "Projects", create_safe_folder_name(selected_project))
+            if os.path.exists(folder_path):
+                files = os.listdir(folder_path)
+                if files:
+                    st.write("Περιεχόμενα Φακέλου:")
+                    for f in files:
+                        st.write(f"- {f}")
+                else:
+                    st.write("Ο φάκελος δεν έχει αρχεία ακόμα.")
+
+with tab2:
+    with st.expander("Δημιουργία Νέου Ταξιδιού"):
+        new_trip = st.text_input("Όνομα Ταξιδιού")
+        if st.button("Δημιουργία Φακέλου Ταξιδιού"):
+            if new_trip:
+                conn.execute('INSERT INTO trips (name) VALUES (?)', (new_trip,))
+                conn.commit()
+                os.makedirs(os.path.join("uploads", "Trips", create_safe_folder_name(new_trip)), exist_ok=True)
+                st.success("Ο φάκελος ταξιδιού δημιουργήθηκε!")
+                st.rerun()
+            else:
+                st.error("Γράψε ένα όνομα για το ταξίδι.")
+
+    trips_df = pd.read_sql_query('SELECT * FROM trips', conn)
+    if not trips_df.empty:
+        trip_names = trips_df['name'].tolist()
+        selected_trip = st.selectbox("Άνοιγμα Φακέλου Ταξιδιού", ["Επίλεξε..."] + trip_names)
         
-        st.download_button(
-            label="Κατέβασμα λίστας εξόδων (Excel)",
-            data=output.getvalue(),
-            file_name="exoda_taxidion.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        if selected_trip != "Επίλεξε...":
+            st.subheader(f"Μέσα στον φάκελο: {selected_trip}")
+            
+            expense_desc = st.text_input("Περιγραφή Εξόδου (π.χ. Ταξί)")
+            expense_amount = st.number_input("Ποσό", min_value=0.0, format="%.2f")
+            exp_file = st.file_uploader("Απόδειξη", type=["pdf", "png", "jpg"])
+            
+            if st.button("Προσθήκη Εξόδου"):
+                file_path = save_uploaded_file(exp_file, "Trips", selected_trip) if exp_file else ""
+                conn.execute('INSERT INTO expenses (trip_name, description, amount, file_path) VALUES (?, ?, ?, ?)', 
+                           (selected_trip, expense_desc, expense_amount, file_path))
+                conn.commit()
+                st.success("Το έξοδο καταχωρήθηκε στον φάκελο!")
+                st.rerun()
+            
+            trip_expenses = pd.read_sql_query('SELECT description as Περιγραφή, amount as Ποσό FROM expenses WHERE trip_name = ?', conn, params=(selected_trip,))
+            
+            if not trip_expenses.empty:
+                st.write("Λίστα Εξόδων Ταξιδιού:")
+                st.dataframe(trip_expenses)
+                
+                folder_path = os.path.join("uploads", "Trips", create_safe_folder_name(selected_trip))
+                if os.path.exists(folder_path):
+                    files = os.listdir(folder_path)
+                    if files:
+                        st.write("Αρχεία Φακέλου:")
+                        for f in files:
+                            st.write(f"- {f}")
