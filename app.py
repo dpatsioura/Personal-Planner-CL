@@ -25,7 +25,7 @@ def save_uploaded_file(uploadedfile, category, folder_name):
         return file_path
     return ""
 
-conn = sqlite3.connect('command_center_v5.db', check_same_thread=False)
+conn = sqlite3.connect('command_center_v6.db', check_same_thread=False)
 
 conn.execute('''CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY, name TEXT, proposal_deadline TEXT, date_from TEXT, date_to TEXT, total_funding REAL)''')
 conn.execute('''CREATE TABLE IF NOT EXISTS stakeholders (id INTEGER PRIMARY KEY, project_name TEXT, name TEXT, funding REAL, role TEXT)''')
@@ -48,18 +48,18 @@ with tab1:
             new_funding = st.number_input("Συνολική Χρηματοδότηση σε Ευρώ", min_value=0.0, format="%.2f")
             
             st.write("Χρονοδιάγραμμα")
-            new_deadline = st.date_input("Deadline Υποβολής Πρότασης")
+            new_deadline = st.date_input("Deadline Υποβολής Πρότασης", format="DD/MM/YYYY")
             col_p1, col_p2 = st.columns(2)
             with col_p1:
-                new_proj_from = st.date_input("Έναρξη Έργου (Αν εγκριθεί)")
+                new_proj_from = st.date_input("Έναρξη Έργου (Αν εγκριθεί)", format="DD/MM/YYYY")
             with col_p2:
-                new_proj_to = st.date_input("Λήξη Έργου")
+                new_proj_to = st.date_input("Λήξη Έργου", format="DD/MM/YYYY")
             
             submitted_proj = st.form_submit_button("Δημιουργία Φακέλου Έργου")
             if submitted_proj:
                 if new_project:
                     conn.execute('INSERT INTO projects (name, proposal_deadline, date_from, date_to, total_funding) VALUES (?, ?, ?, ?, ?)', 
-                               (new_project, str(new_deadline), str(new_proj_from), str(new_proj_to), new_funding))
+                               (new_project, new_deadline.strftime('%d/%m/%Y'), new_proj_from.strftime('%d/%m/%Y'), new_proj_to.strftime('%d/%m/%Y'), new_funding))
                     conn.commit()
                     os.makedirs(os.path.join("uploads", "Projects", create_safe_folder_name(new_project)), exist_ok=True)
                     st.success("Το έργο δημιουργήθηκε!")
@@ -110,12 +110,12 @@ with tab1:
                         task_sh = st.selectbox("Επιλογή Stakeholder", sh_list)
                         task_q = st.selectbox("Τρίμηνο", ["Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8"])
                         task_desc = st.text_input("Περιγραφή Task ή Παραδοτέου")
-                        task_dead = st.date_input("Αυστηρό Deadline Task")
+                        task_dead = st.date_input("Αυστηρό Deadline Task", format="DD/MM/YYYY")
                         
                         submitted_task = st.form_submit_button("Προσθήκη Task")
                         if submitted_task:
                             conn.execute('INSERT INTO tasks (project_name, stakeholder_name, quarter, description, deadline) VALUES (?, ?, ?, ?, ?)', 
-                                       (selected_project, task_sh, task_q, task_desc, str(task_dead)))
+                                       (selected_project, task_sh, task_q, task_desc, task_dead.strftime('%d/%m/%Y')))
                             conn.commit()
                             st.success("Το task ανατέθηκε!")
                             st.rerun()
@@ -158,158 +158,4 @@ with tab2:
             
             col_d1, col_d2 = st.columns(2)
             with col_d1:
-                new_trip_from = st.date_input("Ημερομηνία Αναχώρησης")
-            with col_d2:
-                new_trip_to = st.date_input("Ημερομηνία Επιστροφής")
-                
-            submitted_trip = st.form_submit_button("Δημιουργία Φακέλου Ταξιδιού")
-            if submitted_trip:
-                if new_trip_location:
-                    formatted_date = new_trip_from.strftime("%d-%m-%Y")
-                    generated_trip_name = f"{new_trip_location} ({formatted_date})"
-                    
-                    conn.execute('INSERT INTO trips (name, project, date_from, date_to, location) VALUES (?, ?, ?, ?, ?)', 
-                               (generated_trip_name, new_trip_project, str(new_trip_from), str(new_trip_to), new_trip_location))
-                    conn.commit()
-                    os.makedirs(os.path.join("uploads", "Trips", create_safe_folder_name(generated_trip_name)), exist_ok=True)
-                    st.success("Ο φάκελος ταξιδιού δημιουργήθηκε!")
-                    st.rerun()
-                else:
-                    st.error("Γράψε έναν προορισμό για να δημιουργηθεί ο φάκελος.")
-
-    trips_df = pd.read_sql_query('SELECT * FROM trips', conn)
-    if not trips_df.empty:
-        trip_names = trips_df['name'].tolist()
-        selected_trip = st.selectbox("Άνοιγμα Φακέλου Ταξιδιού", ["Επίλεξε..."] + trip_names)
-        
-        if selected_trip != "Επίλεξε...":
-            trip_info = trips_df[trips_df['name'] == selected_trip].iloc[0]
-            st.subheader(f"Μέσα στον φάκελο: {selected_trip}")
-            st.caption(f"Έργο: {trip_info['project']} | Προορισμός: {trip_info['location']} | Διάρκεια: {trip_info['date_from']} έως {trip_info['date_to']}")
-            
-            with st.form("new_expense_form", clear_on_submit=True):
-                expense_desc = st.text_input("Περιγραφή Εξόδου (π.χ. Ταξί)")
-                expense_amount = st.number_input("Ποσό", min_value=0.0, format="%.2f")
-                exp_file = st.file_uploader("Απόδειξη", type=["pdf", "png", "jpg"])
-                
-                submitted_exp = st.form_submit_button("Προσθήκη Εξόδου")
-                if submitted_exp:
-                    file_path = save_uploaded_file(exp_file, "Trips", selected_trip) if exp_file else ""
-                    conn.execute('INSERT INTO expenses (trip_name, description, amount, file_path) VALUES (?, ?, ?, ?)', 
-                               (selected_trip, expense_desc, expense_amount, file_path))
-                    conn.commit()
-                    st.success("Το έξοδο καταχωρήθηκε στον φάκελο!")
-                    st.rerun()
-            
-            trip_expenses = pd.read_sql_query('SELECT id, description, amount, file_path FROM expenses WHERE trip_name = ?', conn, params=(selected_trip,))
-            
-            if not trip_expenses.empty:
-                st.write("Λίστα Εξόδων Ταξιδιού:")
-                
-                col_h1, col_h2, col_h3, col_h4 = st.columns([3, 2, 2, 1])
-                col_h1.write("Περιγραφή")
-                col_h2.write("Ποσό")
-                col_h3.write("Αρχείο")
-                col_h4.write("Διαγραφή")
-                
-                for index, row in trip_expenses.iterrows():
-                    col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
-                    col1.write(row['description'])
-                    col2.write(f"{row['amount']:.2f} €")
-                    
-                    file_p = row['file_path']
-                    if pd.notna(file_p) and file_p != "":
-                        if os.path.exists(file_p):
-                            with open(file_p, "rb") as file:
-                                file_content = file.read()
-                            file_name = os.path.basename(file_p)
-                            col3.download_button(label="📄", data=file_content, file_name=file_name, key=f"dl_exp_{row['id']}")
-                        else:
-                            col3.write("Λείπει")
-                    else:
-                        col3.write("-")
-                        
-                    if col4.button("🗑️", key=f"del_exp_{row['id']}"):
-                        conn.execute('DELETE FROM expenses WHERE id = ?', (row['id'],))
-                        conn.commit()
-                        if pd.notna(file_p) and file_p != "" and os.path.exists(file_p):
-                            os.remove(file_p)
-                        st.rerun()
-
-with tab3:
-    st.header("Ειδοποιήσεις & Επείγοντα")
-    ptasks_df = pd.read_sql_query('SELECT * FROM personal_tasks ORDER BY deadline', conn)
-    
-    today = date.today()
-    has_alerts = False
-    
-    for index, row in ptasks_df.iterrows():
-        if row['progress'] < 100:
-            try:
-                task_date = datetime.strptime(row['deadline'], '%Y-%m-%d').date()
-                days_left = (task_date - today).days
-                if days_left < 0:
-                    st.error(f"Έληξε: {row['title']} (Είχε προθεσμία στις {row['deadline']})")
-                    has_alerts = True
-                elif days_left <= 7:
-                    st.warning(f"Πλησιάζει: {row['title']} (Λήγει σε {days_left} μέρες)")
-                    has_alerts = True
-            except ValueError:
-                pass
-                
-    if not has_alerts:
-        st.info("Δεν υπάρχουν επείγουσες εκκρεμότητες για τις επόμενες 7 ημέρες.")
-        
-    st.divider()
-
-    with st.expander("Προσθήκη Νέας Εργασίας"):
-        with st.form("new_personal_task_form", clear_on_submit=True):
-            ptask_title = st.text_input("Τίτλος Εργασίας")
-            ptask_deadline = st.date_input("Προθεσμία")
-            ptask_progress = st.slider("Πρόοδος (%)", 0, 100, 0)
-            ptask_notes = st.text_area("Σχόλια / Σημειώσεις")
-            ptask_file = st.file_uploader("Συνημμένο Αρχείο", type=["pdf", "docx", "png", "jpg", "xlsx"])
-            
-            submitted_ptask = st.form_submit_button("Αποθήκευση Εργασίας")
-            if submitted_ptask:
-                if ptask_title:
-                    file_path = save_uploaded_file(ptask_file, "Planner", ptask_title) if ptask_file else ""
-                    conn.execute('INSERT INTO personal_tasks (title, deadline, progress, notes, file_path) VALUES (?, ?, ?, ?, ?)', 
-                               (ptask_title, str(ptask_deadline), ptask_progress, ptask_notes, file_path))
-                    conn.commit()
-                    st.success("Η εργασία προστέθηκε στο πλάνο σου!")
-                    st.rerun()
-                else:
-                    st.error("Γράψε έναν τίτλο για την εργασία.")
-                    
-    st.subheader("Η Λίστα μου")
-    
-    if not ptasks_df.empty:
-        for index, row in ptasks_df.iterrows():
-            with st.container():
-                col_t1, col_t2 = st.columns([4, 1])
-                with col_t1:
-                    st.write(f"📌 {row['title']} (Λήξη: {row['deadline']})")
-                with col_t2:
-                    if st.button("🗑️ Διαγραφή", key=f"del_ptask_{row['id']}"):
-                        conn.execute('DELETE FROM personal_tasks WHERE id = ?', (row['id'],))
-                        conn.commit()
-                        if pd.notna(row['file_path']) and row['file_path'] != "" and os.path.exists(row['file_path']):
-                            os.remove(row['file_path'])
-                        st.rerun()
-                
-                st.progress(row['progress'] / 100.0)
-                
-                if pd.notna(row['notes']) and row['notes'].strip() != "":
-                    st.caption("Σημειώσεις:")
-                    st.write(row['notes'])
-                    
-                if pd.notna(row['file_path']) and row['file_path'] != "":
-                    if os.path.exists(row['file_path']):
-                        with open(row['file_path'], "rb") as file:
-                            file_content = file.read()
-                        file_name = os.path.basename(row['file_path'])
-                        st.download_button(label=f"📄 Λήψη Αρχείου: {file_name}", data=file_content, file_name=file_name, key=f"dl_ptask_{row['id']}")
-                st.divider()
-    else:
-        st.write("Η λίστα είναι άδεια.")
+                new_
