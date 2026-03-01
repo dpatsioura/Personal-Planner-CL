@@ -24,10 +24,10 @@ def save_uploaded_file(uploadedfile, category, folder_name):
         return file_path
     return ""
 
-conn = sqlite3.connect('command_center_v2.db', check_same_thread=False)
+conn = sqlite3.connect('command_center_v3.db', check_same_thread=False)
 
 conn.execute('''CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY, name TEXT, deadline TEXT)''')
-conn.execute('''CREATE TABLE IF NOT EXISTS trips (id INTEGER PRIMARY KEY, name TEXT)''')
+conn.execute('''CREATE TABLE IF NOT EXISTS trips (id INTEGER PRIMARY KEY, name TEXT, project TEXT, date_from TEXT, date_to TEXT, location TEXT)''')
 conn.execute('''CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY, trip_name TEXT, description TEXT, amount REAL, file_path TEXT)''')
 conn.commit()
 
@@ -38,7 +38,7 @@ tab1, tab2 = st.tabs(["Projects", "Ταξίδια & Έξοδα"])
 with tab1:
     with st.expander("Δημιουργία Νέου Project"):
         new_project = st.text_input("Όνομα Project")
-        new_deadline = st.date_input("Προθεσμία")
+        new_deadline = st.date_input("Προθεσμία Project")
         if st.button("Δημιουργία Φακέλου Project"):
             if new_project:
                 conn.execute('INSERT INTO projects (name, deadline) VALUES (?, ?)', (new_project, str(new_deadline)))
@@ -68,18 +68,34 @@ with tab1:
             if os.path.exists(folder_path):
                 files = os.listdir(folder_path)
                 if files:
-                    st.write("Περιεχόμενα Φακέλου:")
+                    st.write("Αρχεία Φακέλου:")
                     for f in files:
-                        st.write(f"- {f}")
+                        col1, col2 = st.columns([4, 1])
+                        with col1:
+                            st.write(f)
+                        with col2:
+                            if st.button("Διαγραφή", key=f"del_proj_{f}"):
+                                os.remove(os.path.join(folder_path, f))
+                                st.rerun()
                 else:
                     st.write("Ο φάκελος δεν έχει αρχεία ακόμα.")
 
 with tab2:
     with st.expander("Δημιουργία Νέου Ταξιδιού"):
         new_trip = st.text_input("Όνομα Ταξιδιού")
+        new_trip_project = st.text_input("Έργο / Project")
+        new_trip_location = st.text_input("Προορισμός / Τοποθεσία")
+        
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
+            new_trip_from = st.date_input("Ημερομηνία Από")
+        with col_d2:
+            new_trip_to = st.date_input("Ημερομηνία Έως")
+            
         if st.button("Δημιουργία Φακέλου Ταξιδιού"):
             if new_trip:
-                conn.execute('INSERT INTO trips (name) VALUES (?)', (new_trip,))
+                conn.execute('INSERT INTO trips (name, project, date_from, date_to, location) VALUES (?, ?, ?, ?, ?)', 
+                           (new_trip, new_trip_project, str(new_trip_from), str(new_trip_to), new_trip_location))
                 conn.commit()
                 os.makedirs(os.path.join("uploads", "Trips", create_safe_folder_name(new_trip)), exist_ok=True)
                 st.success("Ο φάκελος ταξιδιού δημιουργήθηκε!")
@@ -93,7 +109,9 @@ with tab2:
         selected_trip = st.selectbox("Άνοιγμα Φακέλου Ταξιδιού", ["Επίλεξε..."] + trip_names)
         
         if selected_trip != "Επίλεξε...":
+            trip_info = trips_df[trips_df['name'] == selected_trip].iloc[0]
             st.subheader(f"Μέσα στον φάκελο: {selected_trip}")
+            st.caption(f"Έργο: {trip_info['project']} | Προορισμός: {trip_info['location']} | Διάρκεια: {trip_info['date_from']} έως {trip_info['date_to']}")
             
             expense_desc = st.text_input("Περιγραφή Εξόδου (π.χ. Ταξί)")
             expense_amount = st.number_input("Ποσό", min_value=0.0, format="%.2f")
@@ -113,10 +131,16 @@ with tab2:
                 st.write("Λίστα Εξόδων Ταξιδιού:")
                 st.dataframe(trip_expenses)
                 
-                folder_path = os.path.join("uploads", "Trips", create_safe_folder_name(selected_trip))
-                if os.path.exists(folder_path):
-                    files = os.listdir(folder_path)
-                    if files:
-                        st.write("Αρχεία Φακέλου:")
-                        for f in files:
-                            st.write(f"- {f}")
+            folder_path = os.path.join("uploads", "Trips", create_safe_folder_name(selected_trip))
+            if os.path.exists(folder_path):
+                files = os.listdir(folder_path)
+                if files:
+                    st.write("Αρχεία Φακέλου:")
+                    for f in files:
+                        col1, col2 = st.columns([4, 1])
+                        with col1:
+                            st.write(f)
+                        with col2:
+                            if st.button("Διαγραφή", key=f"del_trip_{f}"):
+                                os.remove(os.path.join(folder_path, f))
+                                st.rerun()
