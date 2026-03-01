@@ -24,7 +24,7 @@ def save_uploaded_file(uploadedfile, category, folder_name):
         return file_path
     return ""
 
-conn = sqlite3.connect('command_center.db', check_same_thread=False)
+conn = sqlite3.connect('command_center_v2.db', check_same_thread=False)
 
 conn.execute('''CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY, name TEXT, deadline TEXT)''')
 conn.execute('''CREATE TABLE IF NOT EXISTS trips (id INTEGER PRIMARY KEY, name TEXT)''')
