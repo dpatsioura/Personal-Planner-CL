@@ -7,7 +7,7 @@ import zipfile
 from datetime import date, datetime
 from io import BytesIO
 
-st.set_page_config(page_title="Command Center", layout="wide")
+st.set_page_config(page_title="Personal Planner", layout="wide")
 
 def create_safe_folder_name(name):
     clean_name = re.sub(r'[^a-zA-Z0-9\u0370-\u03FF ]', '_', name.strip())
@@ -34,9 +34,9 @@ conn.execute('''CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY, tri
 conn.execute('''CREATE TABLE IF NOT EXISTS personal_tasks (id INTEGER PRIMARY KEY, title TEXT, deadline TEXT, progress INTEGER, notes TEXT, file_path TEXT)''')
 conn.commit()
 
-st.title("Academic Command Center")
+st.title("Personal Planner")
 
-tab1, tab2 = st.tabs(["Personal Planner", "Ταξίδια & Έξοδα"])
+tab1, tab2 = st.tabs(["Λίστα Εργασιών", "Ταξίδια & Έξοδα"])
 
 with tab1:
     st.header("Ειδοποιήσεις & Επείγοντα")
