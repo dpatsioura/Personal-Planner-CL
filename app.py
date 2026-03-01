@@ -82,7 +82,6 @@ with tab1:
 
 with tab2:
     with st.expander("Δημιουργία Νέου Ταξιδιού"):
-        new_trip = st.text_input("Όνομα Ταξιδιού")
         new_trip_project = st.text_input("Έργο / Project")
         new_trip_location = st.text_input("Προορισμός / Τοποθεσία")
         
@@ -93,15 +92,18 @@ with tab2:
             new_trip_to = st.date_input("Ημερομηνία Έως")
             
         if st.button("Δημιουργία Φακέλου Ταξιδιού"):
-            if new_trip:
+            if new_trip_location:
+                formatted_date = new_trip_from.strftime("%d-%m-%Y")
+                generated_trip_name = f"{new_trip_location} ({formatted_date})"
+                
                 conn.execute('INSERT INTO trips (name, project, date_from, date_to, location) VALUES (?, ?, ?, ?, ?)', 
-                           (new_trip, new_trip_project, str(new_trip_from), str(new_trip_to), new_trip_location))
+                           (generated_trip_name, new_trip_project, str(new_trip_from), str(new_trip_to), new_trip_location))
                 conn.commit()
-                os.makedirs(os.path.join("uploads", "Trips", create_safe_folder_name(new_trip)), exist_ok=True)
+                os.makedirs(os.path.join("uploads", "Trips", create_safe_folder_name(generated_trip_name)), exist_ok=True)
                 st.success("Ο φάκελος ταξιδιού δημιουργήθηκε!")
                 st.rerun()
             else:
-                st.error("Γράψε ένα όνομα για το ταξίδι.")
+                st.error("Γράψε έναν προορισμό για να δημιουργηθεί ο φάκελος.")
 
     trips_df = pd.read_sql_query('SELECT * FROM trips', conn)
     if not trips_df.empty:
