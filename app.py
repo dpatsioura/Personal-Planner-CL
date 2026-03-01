@@ -198,22 +198,37 @@ with tab2:
                     st.success("Το έξοδο καταχωρήθηκε στον φάκελο!")
                     st.rerun()
             
-            trip_expenses = pd.read_sql_query('SELECT description as Περιγραφή, amount as Ποσό FROM expenses WHERE trip_name = ?', conn, params=(selected_trip,))
+            trip_expenses = pd.read_sql_query('SELECT id, description, amount, file_path FROM expenses WHERE trip_name = ?', conn, params=(selected_trip,))
             
             if not trip_expenses.empty:
                 st.write("Λίστα Εξόδων Ταξιδιού:")
-                st.dataframe(trip_expenses)
                 
-            folder_path = os.path.join("uploads", "Trips", create_safe_folder_name(selected_trip))
-            if os.path.exists(folder_path):
-                files = os.listdir(folder_path)
-                if files:
-                    st.write("Αρχεία Φακέλου:")
-                    for f in files:
-                        col1, col2 = st.columns([4, 1])
-                        with col1:
-                            st.write(f)
-                        with col2:
-                            if st.button("Διαγραφή", key=f"del_trip_{f}"):
-                                os.remove(os.path.join(folder_path, f))
-                                st.rerun()
+                col_h1, col_h2, col_h3, col_h4 = st.columns([3, 2, 2, 1])
+                col_h1.write("Περιγραφή")
+                col_h2.write("Ποσό")
+                col_h3.write("Αρχείο Απόδειξης")
+                col_h4.write("Διαγραφή")
+                
+                for index, row in trip_expenses.iterrows():
+                    col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+                    col1.write(row['description'])
+                    col2.write(f"{row['amount']:.2f} €")
+                    
+                    file_p = row['file_path']
+                    if pd.notna(file_p) and file_p != "":
+                        if os.path.exists(file_p):
+                            with open(file_p, "rb") as file:
+                                file_content = file.read()
+                            file_name = os.path.basename(file_p)
+                            col3.download_button(label="📄 Λήψη", data=file_content, file_name=file_name, key=f"dl_exp_{row['id']}")
+                        else:
+                            col3.write("Λείπει")
+                    else:
+                        col3.write("-")
+                        
+                    if col4.button("🗑️", key=f"del_exp_{row['id']}"):
+                        conn.execute('DELETE FROM expenses WHERE id = ?', (row['id'],))
+                        conn.commit()
+                        if pd.notna(file_p) and file_p != "" and os.path.exists(file_p):
+                            os.remove(file_p)
+                        st.rerun()
