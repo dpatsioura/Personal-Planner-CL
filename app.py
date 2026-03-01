@@ -3,6 +3,7 @@ import pandas as pd
 import sqlite3
 import os
 import re
+from datetime import date, datetime
 
 st.set_page_config(page_title="Command Center", layout="wide")
 
@@ -24,7 +25,7 @@ def save_uploaded_file(uploadedfile, category, folder_name):
         return file_path
     return ""
 
-conn = sqlite3.connect('command_center_v4.db', check_same_thread=False)
+conn = sqlite3.connect('command_center_v5.db', check_same_thread=False)
 
 conn.execute('''CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY, name TEXT, proposal_deadline TEXT, date_from TEXT, date_to TEXT, total_funding REAL)''')
 conn.execute('''CREATE TABLE IF NOT EXISTS stakeholders (id INTEGER PRIMARY KEY, project_name TEXT, name TEXT, funding REAL, role TEXT)''')
@@ -32,11 +33,13 @@ conn.execute('''CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY, projec
 
 conn.execute('''CREATE TABLE IF NOT EXISTS trips (id INTEGER PRIMARY KEY, name TEXT, project TEXT, date_from TEXT, date_to TEXT, location TEXT)''')
 conn.execute('''CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY, trip_name TEXT, description TEXT, amount REAL, file_path TEXT)''')
+
+conn.execute('''CREATE TABLE IF NOT EXISTS personal_tasks (id INTEGER PRIMARY KEY, title TEXT, deadline TEXT, progress INTEGER, notes TEXT, file_path TEXT)''')
 conn.commit()
 
 st.title("Academic Command Center")
 
-tab1, tab2 = st.tabs(["Έργα & Προτάσεις", "Ταξίδια & Έξοδα"])
+tab1, tab2, tab3 = st.tabs(["Έργα & Προτάσεις", "Ταξίδια & Έξοδα", "Personal Planner"])
 
 with tab1:
     with st.expander("Δημιουργία Νέου Έργου ή Πρότασης"):
@@ -80,7 +83,7 @@ with tab1:
                 st.write("Προσθήκη Νέου Stakeholder")
                 with st.form("new_stakeholder_form", clear_on_submit=True):
                     sh_name = st.text_input("Όνομα Φορέα ή Εταίρου")
-                    sh_role = st.text_input("Ρόλος (π.χ. Συντονιστής, WP Leader)")
+                    sh_role = st.text_input("Ρόλος (π.χ. Συντονιστής)")
                     sh_funding = st.number_input("Προϋπολογισμός Εταίρου", min_value=0.0, format="%.2f")
                     
                     submitted_sh = st.form_submit_button("Προσθήκη Stakeholder")
@@ -100,12 +103,12 @@ with tab1:
                 sh_list = pd.read_sql_query('SELECT name FROM stakeholders WHERE project_name = ?', conn, params=(selected_project,))['name'].tolist()
                 
                 if not sh_list:
-                    st.info("Πρόσθεσε πρώτα stakeholders στην προηγούμενη καρτέλα για να τους αναθέσεις tasks.")
+                    st.info("Πρόσθεσε πρώτα stakeholders στην προηγούμενη καρτέλα.")
                 else:
                     st.write("Ανάθεση Task")
                     with st.form("new_task_form", clear_on_submit=True):
                         task_sh = st.selectbox("Επιλογή Stakeholder", sh_list)
-                        task_q = st.selectbox("Τρίμηνο", ["Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9", "Q10", "Q11", "Q12"])
+                        task_q = st.selectbox("Τρίμηνο", ["Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8"])
                         task_desc = st.text_input("Περιγραφή Task ή Παραδοτέου")
                         task_dead = st.date_input("Αυστηρό Deadline Task")
                         
@@ -206,7 +209,7 @@ with tab2:
                 col_h1, col_h2, col_h3, col_h4 = st.columns([3, 2, 2, 1])
                 col_h1.write("Περιγραφή")
                 col_h2.write("Ποσό")
-                col_h3.write("Αρχείο Απόδειξης")
+                col_h3.write("Αρχείο")
                 col_h4.write("Διαγραφή")
                 
                 for index, row in trip_expenses.iterrows():
@@ -220,7 +223,7 @@ with tab2:
                             with open(file_p, "rb") as file:
                                 file_content = file.read()
                             file_name = os.path.basename(file_p)
-                            col3.download_button(label="📄 Λήψη", data=file_content, file_name=file_name, key=f"dl_exp_{row['id']}")
+                            col3.download_button(label="📄", data=file_content, file_name=file_name, key=f"dl_exp_{row['id']}")
                         else:
                             col3.write("Λείπει")
                     else:
@@ -232,3 +235,81 @@ with tab2:
                         if pd.notna(file_p) and file_p != "" and os.path.exists(file_p):
                             os.remove(file_p)
                         st.rerun()
+
+with tab3:
+    st.header("Ειδοποιήσεις & Επείγοντα")
+    ptasks_df = pd.read_sql_query('SELECT * FROM personal_tasks ORDER BY deadline', conn)
+    
+    today = date.today()
+    has_alerts = False
+    
+    for index, row in ptasks_df.iterrows():
+        if row['progress'] < 100:
+            try:
+                task_date = datetime.strptime(row['deadline'], '%Y-%m-%d').date()
+                days_left = (task_date - today).days
+                if days_left < 0:
+                    st.error(f"Έληξε: {row['title']} (Είχε προθεσμία στις {row['deadline']})")
+                    has_alerts = True
+                elif days_left <= 7:
+                    st.warning(f"Πλησιάζει: {row['title']} (Λήγει σε {days_left} μέρες)")
+                    has_alerts = True
+            except ValueError:
+                pass
+                
+    if not has_alerts:
+        st.info("Δεν υπάρχουν επείγουσες εκκρεμότητες για τις επόμενες 7 ημέρες.")
+        
+    st.divider()
+
+    with st.expander("Προσθήκη Νέας Εργασίας"):
+        with st.form("new_personal_task_form", clear_on_submit=True):
+            ptask_title = st.text_input("Τίτλος Εργασίας")
+            ptask_deadline = st.date_input("Προθεσμία")
+            ptask_progress = st.slider("Πρόοδος (%)", 0, 100, 0)
+            ptask_notes = st.text_area("Σχόλια / Σημειώσεις")
+            ptask_file = st.file_uploader("Συνημμένο Αρχείο", type=["pdf", "docx", "png", "jpg", "xlsx"])
+            
+            submitted_ptask = st.form_submit_button("Αποθήκευση Εργασίας")
+            if submitted_ptask:
+                if ptask_title:
+                    file_path = save_uploaded_file(ptask_file, "Planner", ptask_title) if ptask_file else ""
+                    conn.execute('INSERT INTO personal_tasks (title, deadline, progress, notes, file_path) VALUES (?, ?, ?, ?, ?)', 
+                               (ptask_title, str(ptask_deadline), ptask_progress, ptask_notes, file_path))
+                    conn.commit()
+                    st.success("Η εργασία προστέθηκε στο πλάνο σου!")
+                    st.rerun()
+                else:
+                    st.error("Γράψε έναν τίτλο για την εργασία.")
+                    
+    st.subheader("Η Λίστα μου")
+    
+    if not ptasks_df.empty:
+        for index, row in ptasks_df.iterrows():
+            with st.container():
+                col_t1, col_t2 = st.columns([4, 1])
+                with col_t1:
+                    st.write(f"📌 {row['title']} (Λήξη: {row['deadline']})")
+                with col_t2:
+                    if st.button("🗑️ Διαγραφή", key=f"del_ptask_{row['id']}"):
+                        conn.execute('DELETE FROM personal_tasks WHERE id = ?', (row['id'],))
+                        conn.commit()
+                        if pd.notna(row['file_path']) and row['file_path'] != "" and os.path.exists(row['file_path']):
+                            os.remove(row['file_path'])
+                        st.rerun()
+                
+                st.progress(row['progress'] / 100.0)
+                
+                if pd.notna(row['notes']) and row['notes'].strip() != "":
+                    st.caption("Σημειώσεις:")
+                    st.write(row['notes'])
+                    
+                if pd.notna(row['file_path']) and row['file_path'] != "":
+                    if os.path.exists(row['file_path']):
+                        with open(row['file_path'], "rb") as file:
+                            file_content = file.read()
+                        file_name = os.path.basename(row['file_path'])
+                        st.download_button(label=f"📄 Λήψη Αρχείου: {file_name}", data=file_content, file_name=file_name, key=f"dl_ptask_{row['id']}")
+                st.divider()
+    else:
+        st.write("Η λίστα είναι άδεια.")
