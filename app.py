@@ -3,12 +3,14 @@ import pandas as pd
 import sqlite3
 import os
 import re
+import zipfile
 from datetime import date, datetime
+from io import BytesIO
 
 st.set_page_config(page_title="Command Center", layout="wide")
 
 def create_safe_folder_name(name):
-    clean_name = re.sub(r'[^a-zA-Z0-9\u0370-\u03FF -]', '_', name.strip())
+    clean_name = re.sub(r'[^a-zA-Z0-9\u0370-\u03FF ]', '_', name.strip())
     return clean_name.replace(' ', '_')
 
 def save_uploaded_file(uploadedfile, category, folder_name):
@@ -110,6 +112,23 @@ with tab1:
                             file_content = file.read()
                         file_name = os.path.basename(row['file_path'])
                         st.download_button(label=f"📄 Λήψη Αρχείου: {file_name}", data=file_content, file_name=file_name, key=f"dl_ptask_{row['id']}")
+                
+                with st.expander("Επεξεργασία Εργασίας"):
+                    with st.form(f"edit_ptask_{row['id']}"):
+                        e_title = st.text_input("Τίτλος", value=row['title'], key=f"et_{row['id']}")
+                        try:
+                            e_dead_val = datetime.strptime(row['deadline'], '%d/%m/%Y').date()
+                        except:
+                            e_dead_val = today
+                        e_deadline = st.date_input("Προθεσμία", value=e_dead_val, format="DD/MM/YYYY", key=f"ed_{row['id']}")
+                        e_prog = st.slider("Πρόοδος (%)", 0, 100, int(row['progress']), key=f"ep_{row['id']}")
+                        e_notes = st.text_area("Σημειώσεις", value=row['notes'] if pd.notna(row['notes']) else "", key=f"en_{row['id']}")
+                        
+                        if st.form_submit_button("Αποθήκευση Αλλαγών"):
+                            conn.execute('UPDATE personal_tasks SET title=?, deadline=?, progress=?, notes=? WHERE id=?', 
+                                         (e_title, e_deadline.strftime('%d/%m/%Y'), e_prog, e_notes, row['id']))
+                            conn.commit()
+                            st.rerun()
                 st.divider()
     else:
         st.write("Η λίστα είναι άδεια.")
@@ -129,8 +148,8 @@ with tab2:
             submitted_trip = st.form_submit_button("Δημιουργία Φακέλου Ταξιδιού")
             if submitted_trip:
                 if new_trip_location:
-                    formatted_date = new_trip_from.strftime("%d-%m-%Y") 
-                    generated_trip_name = f"{new_trip_location} ({formatted_date})"
+                    formatted_date = new_trip_from.strftime("%d_%m_%Y") 
+                    generated_trip_name = f"{new_trip_location}_{formatted_date}"
                     
                     conn.execute('INSERT INTO trips (name, project, date_from, date_to, location) VALUES (?, ?, ?, ?, ?)', 
                                (generated_trip_name, new_trip_project, new_trip_from.strftime('%d/%m/%Y'), new_trip_to.strftime('%d/%m/%Y'), new_trip_location))
@@ -148,9 +167,51 @@ with tab2:
         
         if selected_trip != "Επίλεξε...":
             trip_info = trips_df[trips_df['name'] == selected_trip].iloc[0]
-            st.subheader(f"Μέσα στον φάκελο: {selected_trip}")
+            st.subheader(f"Μέσα στον φάκελο: {selected_trip.replace('_', ' ')}")
             st.caption(f"Έργο: {trip_info['project']} | Προορισμός: {trip_info['location']} | Διάρκεια: {trip_info['date_from']} έως {trip_info['date_to']}")
             
+            with st.expander("Επεξεργασία Στοιχείων Ταξιδιού"):
+                with st.form("edit_trip_form"):
+                    e_trip_project = st.text_input("Έργο", value=trip_info['project'])
+                    e_trip_location = st.text_input("Προορισμός", value=trip_info['location'])
+                    col_e1, col_e2 = st.columns(2)
+                    try:
+                        e_from_val = datetime.strptime(trip_info['date_from'], '%d/%m/%Y').date()
+                        e_to_val = datetime.strptime(trip_info['date_to'], '%d/%m/%Y').date()
+                    except:
+                        e_from_val, e_to_val = today, today
+                    with col_e1:
+                        e_trip_from = st.date_input("Από", value=e_from_val, format="DD/MM/YYYY")
+                    with col_e2:
+                        e_trip_to = st.date_input("Έως", value=e_to_val, format="DD/MM/YYYY")
+
+                    if st.form_submit_button("Αποθήκευση Αλλαγών Ταξιδιού"):
+                        new_formatted_date = e_trip_from.strftime("%d_%m_%Y")
+                        new_trip_name = f"{e_trip_location}_{new_formatted_date}"
+                        old_trip_name = trip_info['name']
+
+                        if new_trip_name != old_trip_name:
+                            old_folder = os.path.join("uploads", "Trips", create_safe_folder_name(old_trip_name))
+                            new_folder = os.path.join("uploads", "Trips", create_safe_folder_name(new_trip_name))
+
+                            if os.path.exists(old_folder) and not os.path.exists(new_folder):
+                                os.rename(old_folder, new_folder)
+
+                            expenses_to_update = pd.read_sql_query('SELECT id, file_path FROM expenses WHERE trip_name=?', conn, params=(old_trip_name,))
+                            for _, exp_row in expenses_to_update.iterrows():
+                                old_fp = exp_row['file_path']
+                                new_fp = old_fp
+                                if pd.notna(old_fp) and old_fp != "":
+                                    new_fp = old_fp.replace(create_safe_folder_name(old_trip_name), create_safe_folder_name(new_trip_name))
+                                conn.execute('UPDATE expenses SET trip_name=?, file_path=? WHERE id=?', (new_trip_name, new_fp, exp_row['id']))
+                            
+                            conn.execute('UPDATE expenses SET trip_name=? WHERE trip_name=?', (new_trip_name, old_trip_name))
+                        
+                        conn.execute('UPDATE trips SET name=?, project=?, date_from=?, date_to=?, location=? WHERE id=?', 
+                                     (new_trip_name, e_trip_project, e_trip_from.strftime('%d/%m/%Y'), e_trip_to.strftime('%d/%m/%Y'), e_trip_location, trip_info['id']))
+                        conn.commit()
+                        st.rerun()
+
             with st.form("new_expense_form", clear_on_submit=True):
                 expense_desc = st.text_input("Περιγραφή Εξόδου (π.χ. Ταξί)")
                 expense_amount = st.number_input("Ποσό", min_value=0.0, format="%.2f")
@@ -174,7 +235,7 @@ with tab2:
                 col_h1.write("Περιγραφή")
                 col_h2.write("Ποσό")
                 col_h3.write("Αρχείο")
-                col_h4.write("Διαγραφή")
+                col_h4.write("Ενέργειες")
                 
                 for index, row in trip_expenses.iterrows():
                     col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
@@ -199,3 +260,33 @@ with tab2:
                         if pd.notna(file_p) and file_p != "" and os.path.exists(file_p):
                             os.remove(file_p)
                         st.rerun()
+                        
+                    with st.expander("Επεξεργασία Εξόδου"):
+                        with st.form(f"edit_exp_{row['id']}"):
+                            e_desc = st.text_input("Περιγραφή", value=row['description'], key=f"edesc_{row['id']}")
+                            e_amount = st.number_input("Ποσό", value=float(row['amount']), format="%.2f", key=f"eam_{row['id']}")
+                            if st.form_submit_button("Αποθήκευση Αλλαγών"):
+                                conn.execute('UPDATE expenses SET description=?, amount=? WHERE id=?', (e_desc, e_amount, row['id']))
+                                conn.commit()
+                                st.rerun()
+
+            folder_path = os.path.join("uploads", "Trips", create_safe_folder_name(selected_trip))
+            if os.path.exists(folder_path):
+                files_in_folder = os.listdir(folder_path)
+                if files_in_folder:
+                    st.divider()
+                    st.write("Συγκεντρωτικά Αρχεία Ταξιδιού")
+                    
+                    zip_buffer = BytesIO()
+                    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                        for file_name in files_in_folder:
+                            file_full_path = os.path.join(folder_path, file_name)
+                            if os.path.isfile(file_full_path):
+                                zip_file.write(file_full_path, arcname=file_name)
+                    
+                    st.download_button(
+                        label="📦 Λήψη όλων των αποδείξεων (ZIP)",
+                        data=zip_buffer.getvalue(),
+                        file_name=f"{create_safe_folder_name(selected_trip)}_apodeixeis.zip",
+                        mime="application/zip"
+                    )
